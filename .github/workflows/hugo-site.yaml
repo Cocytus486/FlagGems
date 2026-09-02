@@ -56,9 +56,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: gh-pages
           submodules: recursive
           fetch-depth: 0
+
+      - name: Select site source branch
+        run: |
+          DEFAULT_BRANCH="origin/${{ github.event.repository.default_branch }}"
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git checkout -B gh-pages refs/remotes/origin/gh-pages
+          else
+            git checkout -B "${{ github.event.repository.default_branch }}" "${DEFAULT_BRANCH}"
+          fi
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0

@@ -25,17 +25,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: gh-pages
           submodules: recursive
           fetch-depth: 0
         continue-on-error: true
       - uses: ./.github/actions/checkout-retry
         with:
-          ref: gh-pages
           submodules: recursive
           fetch-depth: "0"
 
       - id: rebase
         run: |
-          git rebase master
+          DEFAULT_BRANCH="origin/${{ github.event.repository.default_branch }}"
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git checkout -B gh-pages refs/remotes/origin/gh-pages
+            git rebase "${DEFAULT_BRANCH}"
+          else
+            git checkout -B gh-pages "${DEFAULT_BRANCH}"
+          fi
           git push -u origin gh-pages -f
