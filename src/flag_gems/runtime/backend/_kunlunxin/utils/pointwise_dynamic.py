@@ -39,6 +39,19 @@ from flag_gems.utils.type_utils import ELEMENTWISE_TYPE_PROMOTION_KIND, type_pro
 _BAD_TILE_SIZE_1D = 32768
 _BAD_TILE_SIZE_1D_FALLBACK = 16384
 
+# ...except on the strided-gather path (`is_scatter_slice`, i.e. `copy_slice`),
+# where 16384 is NOT clean: a transposed contiguous copy of a (4, 65536) fp16
+# tensor -- what `sort` does for any dim other than the last -- faults the
+# device with `error code= 700` / dmesg `copy_slice_kernel_rank_2` +
+# `reason[4] load/store operation exceed memory size` (2026-09-10). The same
+# copy is clean without gems, and clean at 8192, so the guard needs a narrower
+# replacement here. Measured on this machine:
+#   * copy_slice path @16384 -> test_sort 632F/8P, test_hypot_ 52F/8P
+#     @8192  -> test_sort 320P (marker), test_hypot_ 60P
+#   * generic copy_ path @8192 is catastrophic (test_copy 3F/43P in 13s ->
+#     44F/2P at the 1200s timeout), so the narrow width must NOT be global.
+_BAD_TILE_SIZE_1D_FALLBACK_SCATTER = 8192
+
 
 def _type_name(type) -> str:
     "Render typename as string, work for both (bool, int, float, str) and torch.dtype object"
@@ -827,7 +840,12 @@ class WrapperGenerator:
                 "tile_size = triton.next_power_of_2(triton.cdiv(num_tasks, num_tiles)) # XPU BLOCK_NUM"
             )
             code.writeline(f"if tile_size == {_BAD_TILE_SIZE_1D}: # XPU BAD TILE")
-            code.writeline(f"    tile_size = {_BAD_TILE_SIZE_1D_FALLBACK}")
+            fallback = (
+                _BAD_TILE_SIZE_1D_FALLBACK_SCATTER
+                if self.config.is_scatter_slice
+                else _BAD_TILE_SIZE_1D_FALLBACK
+            )
+            code.writeline(f"    tile_size = {fallback}")
             code.writeline("    num_tiles = triton.cdiv(num_tasks, tile_size)")
             code.writeline("    num_ctas = num_tiles")
 
