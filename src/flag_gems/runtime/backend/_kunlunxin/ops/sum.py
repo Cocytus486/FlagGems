@@ -48,6 +48,16 @@ _SMALL_M = 4096
 _HUGE_N = 32768
 _SMALL_BLOCK_M = 8
 _TAIL_BLOCK_M = 64
+# XPU widens a narrow tile to its 64-element vector granule and does not honour
+# the masked row store, so both the tail load and the row store can run off the
+# end of a short buffer: `x.sum(dim=-1)` on a 2x2 tensor faults the device with
+# XPUW "reason[4] load/store operation exceed memory size" (reproduced
+# 2026-09-08, dmesg names `_sum_row_tail_kernel`). Every buffer the row kernels
+# touch is therefore padded up to this many elements.
+_MIN_LANES = 64
+# Element budget for one row-tail program's tile (BLOCK_M * lanes). See the
+# comment at the tail launch: a larger tile aborts on device.
+_TAIL_TILE_ELEMS = 2048
 
 
 def _resolve_acc_dtype(inp_dtype):
@@ -279,6 +289,38 @@ def _sum_row_tail_kernel(
         tl.store(out + row, s, row < M)
 
 
+def _row_out_buffer(out, M, block):
+    """Output buffer wide enough for the kernels' masked row stores.
+
+    The store grid covers cdiv(M, block)*block rows and the mask is not
+    honoured, so a buffer holding exactly M elements (or fewer than one vector
+    granule) is written past its end. Returns (buffer, needs_copy_back).
+    """
+    rows = triton.cdiv(M, block) * block
+    if rows == M and out.numel() >= _MIN_LANES:
+        return out, False
+    return (
+        torch.empty((max(rows, _MIN_LANES),), dtype=out.dtype, device=out.device),
+        True,
+    )
+
+
+def _fit_block_m(M, block):
+    """Largest power-of-2 row block that divides M (never larger than `block`).
+
+    The row kernels clamp out-of-range rows to M-1, but the compiler merges the
+    per-row accesses of a whole BLOCK_M tile into one wide access, and that
+    merged access ignores both the clamp and the lane mask: with BLOCK_M > M it
+    reads BLOCK_M rows' worth of data out of an M-row tensor and the device
+    aborts with XPUW "reason[4] load/store operation exceed memory size".
+    Choosing a block that divides M removes the out-of-range rows entirely
+    (the tensor itself cannot be padded - it is the caller's memory).
+    """
+    while block > 1 and M % block != 0:
+        block >>= 1
+    return block
+
+
 def _launch_sum_dim(inp, out, M, N):
     if M == 1:
         # Degenerate: whole tensor reduces to one element -> route to the
@@ -293,26 +335,95 @@ def _launch_sum_dim(inp, out, M, N):
     tail = N - n0
     with torch_device_fn.device(inp.device):
         if tail == 0:
-            _sum_row_full_kernel[(triton.cdiv(M, block_m), 1, 1)](
-                inp, out, M, N, N, block_m, _ROW_BN, buffer_size_limit=2048
+            fit_m = _fit_block_m(M, block_m)
+            buf, copy_back = _row_out_buffer(out, M, fit_m)
+            _sum_row_full_kernel[(triton.cdiv(M, fit_m), 1, 1)](
+                inp, buf, M, N, N, fit_m, _ROW_BN, buffer_size_limit=2048
             )
+            if copy_back:
+                torch.ops.aten._copy_from(buf[:M], out.view(-1), False)
+        elif n0 == 0:
+            # N < 8192: the whole row is "tail". Rather than the row-tail kernel
+            # (whose static row loop is merged into one wide read that ignores
+            # both the row clamp and the lane mask -> device XPUW "reason[4]
+            # load/store operation exceed memory size" on short tensors,
+            # reproduced 2026-09-08 with sum(dim=-1) on 2x2), stage the rows
+            # into a zero-padded [rows, lanes] block and reduce it with the
+            # unmasked full-row kernel: padding adds 0 and every address the
+            # merged access can touch is inside the staging buffer.
+            lanes = max(triton.next_power_of_2(N), _MIN_LANES)
+            rows = max(triton.cdiv(M, block_m) * block_m, _MIN_LANES)
+            staged = torch.zeros((rows, lanes), dtype=inp.dtype, device=inp.device)
+            torch.ops.aten._copy_from(inp.reshape(M, N), staged[:M, :N], False)
+            buf, copy_back = _row_out_buffer(out, M, block_m)
+            _sum_row_full_kernel[(triton.cdiv(M, block_m), 1, 1)](
+                staged, buf, M, lanes, lanes, block_m, lanes, buffer_size_limit=2048
+            )
+            if copy_back:
+                torch.ops.aten._copy_from(buf[:M], out.view(-1), False)
         else:
             acc = _resolve_acc_dtype(inp.dtype)
-            full = torch.empty((M,), dtype=acc, device=inp.device)
-            _sum_row_full_kernel[(triton.cdiv(M, block_m), 1, 1)](
-                inp, full, M, N, n0, block_m, _ROW_BN, buffer_size_limit=2048
+            full_rows = max(
+                triton.cdiv(M, block_m) * block_m,
+                triton.cdiv(M, _TAIL_BLOCK_M) * _TAIL_BLOCK_M,
+                _MIN_LANES,
             )
-            _sum_row_tail_kernel[(triton.cdiv(M, _TAIL_BLOCK_M), 1, 1)](
-                inp,
+            if n0:
+                full = torch.empty((full_rows,), dtype=acc, device=inp.device)
+                fit_m = _fit_block_m(M, block_m)
+                _sum_row_full_kernel[(triton.cdiv(M, fit_m), 1, 1)](
+                    inp, full, M, N, n0, fit_m, _ROW_BN, buffer_size_limit=2048
+                )
+            else:
+                # Nothing to accumulate over full 8192-wide chunks; an NW=0
+                # launch would only run the (unhonoured) masked row store.
+                full = torch.zeros((full_rows,), dtype=acc, device=inp.device)
+            tail_inp, tail_n, tail_n0, tail_len = inp, N, n0, tail
+            lanes = triton.next_power_of_2(tail)
+            # The row-tail kernel keeps BLOCK_M rows x `lanes` columns live at
+            # once (the row loop is a static_range, so the compiler materializes
+            # the whole tile). Past a few thousand elements per program the
+            # device rejects the access with XPUW "reason[4] load/store
+            # operation exceed memory size" - measured 2026-09-08: (512, 8300)
+            # int64 with BLOCK_M=64 / lanes=128 aborts, the same shape with a
+            # small BLOCK_M passes. Bound the tile instead of trusting the
+            # historical BLOCK_M=64.
+            rows_budget = max(1, _TAIL_TILE_ELEMS // lanes)
+            rows_budget = 1 << (rows_budget.bit_length() - 1)
+            tail_block = _fit_block_m(M, min(_TAIL_BLOCK_M, rows_budget))
+            tail_rows = triton.cdiv(M, tail_block) * tail_block
+            if tail_rows != M or lanes != tail or lanes < _MIN_LANES:
+                # The tail kernel's static row loop is merged by the compiler
+                # into one wide read spanning all BLOCK_M rows and all `lanes`
+                # columns, so clamped rows and masked lanes do NOT keep the
+                # access inside a short tensor (device XPUW "reason[4]
+                # load/store operation exceed memory size", reproduced
+                # 2026-09-08 with sum(dim=-1) on 2x2). Stage the tail columns
+                # into a zero-padded [tail_rows, lanes] block: the padding adds
+                # 0, so the reduction is unchanged, and every address the merged
+                # access can touch is inside the staging buffer.
+                lanes = max(lanes, _MIN_LANES)
+                staged = torch.zeros(
+                    (tail_rows, lanes), dtype=inp.dtype, device=inp.device
+                )
+                torch.ops.aten._copy_from(
+                    inp.reshape(M, N)[:, n0:N], staged[:M, :tail], False
+                )
+                tail_inp, tail_n, tail_n0, tail_len = staged, lanes, 0, lanes
+            buf, copy_back = _row_out_buffer(out, M, tail_block)
+            _sum_row_tail_kernel[(triton.cdiv(M, tail_block), 1, 1)](
+                tail_inp,
                 full,
-                out,
+                buf,
                 M,
-                N,
-                n0,
-                tail,
-                _TAIL_BLOCK_M,
-                triton.next_power_of_2(tail),
+                tail_n,
+                tail_n0,
+                tail_len,
+                tail_block,
+                lanes,
             )
+            if copy_back:
+                torch.ops.aten._copy_from(buf[:M], out.view(-1), False)
 
 
 def _prep_flat(inp, dtype):
