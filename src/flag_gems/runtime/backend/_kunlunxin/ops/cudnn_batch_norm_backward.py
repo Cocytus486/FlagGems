@@ -17,12 +17,22 @@ import logging
 import torch
 import triton
 import triton.language as tl
+from torch import Tensor
+
+from flag_gems.utils import libentry
 
 from .batch_norm import batch_norm_backward
 
 logger = logging.getLogger(__name__)
 
 
+# NOTE (kunlunxin / XPU): the generic cudnn_batch_norm_backward kernel tiles the
+# [N, C, S] layout with a 2D [BLOCK_M, BLOCK_N] block, which the XPU compiler cannot
+# lower for the benchmark shapes (`triton_xpu.convert_layout` shape mismatch /
+# `tt.addptr` type mismatch in ConvertTritonXPUToLLVM). Reuse the contiguous
+# per-(n, c)-slice 1D backward path from batch_norm.py instead; the only extra work is
+# turning the saved variance into the inverse std that path expects.
+@libentry()
 @triton.jit
 def _save_invstd_kernel(
     save_var, save_invstd, epsilon, n_elements, BLOCK: tl.constexpr
@@ -34,15 +44,15 @@ def _save_invstd_kernel(
 
 
 def cudnn_batch_norm_backward(
-    input,
-    grad_output,
-    weight,
-    running_mean=None,
-    running_var=None,
-    save_mean=None,
-    save_var=None,
-    epsilon=1e-5,
-    reserveSpace=None,
+    input: Tensor,
+    grad_output: Tensor,
+    weight: Tensor,
+    running_mean: Tensor = None,
+    running_var: Tensor = None,
+    save_mean: Tensor = None,
+    save_var: Tensor = None,
+    epsilon: float = 1e-5,
+    reserveSpace: Tensor = None,
 ):
     """CUDNN batch-norm backward using saved training statistics on XPU."""
     logger.debug("GEMS_KUNLUNXIN CUDNN_BATCH_NORM_BACKWARD")
@@ -50,10 +60,9 @@ def cudnn_batch_norm_backward(
         raise ValueError(
             "cudnn_batch_norm_backward requires saved training mean and variance"
         )
-    if weight is None:
-        raise ValueError("cudnn_batch_norm_backward requires an affine weight tensor")
 
-    save_invstd = torch.empty_like(save_var)
+    save_var = save_var.contiguous()
+    save_invstd = torch.empty_like(save_var, dtype=torch.float32)
     block = 256
     _save_invstd_kernel[(triton.cdiv(save_var.numel(), block),)](
         save_var, save_invstd, epsilon, save_var.numel(), BLOCK=block
