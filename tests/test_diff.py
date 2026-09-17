@@ -39,6 +39,21 @@ def _make_input(shape, dtype, device):
     return torch.randn(shape, dtype=dtype, device=device)
 
 
+# Kunlunxin (torch_xmlir) has no int16 aten sub kernel, so the eager reference
+# for torch.diff cannot be computed on device. Compute it on CPU and move the
+# result back; the gems int16 kernel itself is exact.
+CPU_REF_DTYPES = (torch.int16,) if flag_gems.vendor_name == "kunlunxin" else ()
+
+
+def _ref_diff(ref_inp, dtype, **kwargs):
+    if dtype not in CPU_REF_DTYPES:
+        return torch.diff(ref_inp, **kwargs)
+    cpu_kwargs = {
+        k: v.cpu() if isinstance(v, torch.Tensor) else v for k, v in kwargs.items()
+    }
+    return torch.diff(ref_inp.cpu(), **cpu_kwargs).to(ref_inp.device)
+
+
 @pytest.mark.diff
 @pytest.mark.parametrize("shape", DIFF_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES + INT_DTYPES)
@@ -48,7 +63,7 @@ def _make_input(shape, dtype, device):
 def test_diff(shape, dtype, n):
     inp = _make_input(shape, dtype, flag_gems.device)
     ref_inp = to_reference(inp)
-    ref_out = torch.diff(ref_inp, n=n)
+    ref_out = _ref_diff(ref_inp, dtype, n=n)
     with flag_gems.use_gems():
         res_out = torch.diff(inp, n=n)
     gems_assert_close(res_out, ref_out, dtype)
@@ -61,7 +76,7 @@ def test_diff(shape, dtype, n):
 def test_diff_3d(shape, dim, dtype):
     inp = _make_input(shape, dtype, flag_gems.device)
     ref_inp = to_reference(inp)
-    ref_out = torch.diff(ref_inp, dim=dim)
+    ref_out = _ref_diff(ref_inp, dtype, dim=dim)
     with flag_gems.use_gems():
         res_out = torch.diff(inp, dim=dim)
     gems_assert_close(res_out, ref_out, dtype)
@@ -86,7 +101,7 @@ def test_diff_prepend_append(shape, dtype):
     ref_prepend = to_reference(prepend)
     ref_append = to_reference(append)
 
-    ref_out = torch.diff(ref_inp, prepend=ref_prepend, append=ref_append)
+    ref_out = _ref_diff(ref_inp, dtype, prepend=ref_prepend, append=ref_append)
     with flag_gems.use_gems():
         res_out = torch.diff(inp, prepend=prepend, append=append)
 
