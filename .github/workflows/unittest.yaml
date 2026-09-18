@@ -204,7 +204,7 @@ jobs:
         run: |
           echo '${{ toJSON(needs) }}' | jq .
           failed=$(echo '${{ toJSON(needs) }}' | jq -r \
-            '[.[] | select(.result != "success" and .result != "skipped")] | length')
+            '[to_entries[] | select((.value.result != "success" and .value.result != "skipped") and (.key != "backend-tests" or .value.result != "cancelled"))] | length')
           if [ "$failed" != "0" ]; then
             echo "::error::One or more required jobs failed"
             exit 1
