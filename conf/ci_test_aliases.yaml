@@ -16,6 +16,7 @@
 #   means tests/test_addmm.py covers the addmm_out operator
 
 # _out variants - share test with base operator
+_ctc_loss_out: test__ctc_loss
 addcdiv_out: test_addcdiv
 addcmul_out: test_addcmul
 addmm_out: test_addmm
@@ -91,4 +92,7 @@ std_mean_names_dim: test_std_mean
 tril_indices: test_triangular_indices
 triu_indices: test_triangular_indices
 upsample_bicubic2d_aa_backward: test_upsample_bicubic2d_aa
+upsample_bicubic2d_backward_grad_input: test_upsample_bicubic2d_backward
+upsample_bilinear2d_backward_grad_input: test_upsample_bilinear2d_backward
 upsample_linear1d_backward: test_upsample_linear1d
+upsample_nearest2d_backward_grad_input: test_upsample_nearest2d_backward
