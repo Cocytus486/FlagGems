@@ -15,6 +15,7 @@
 import importlib
 
 from ..utils.pointwise_dynamic import ModuleGenerator
+from ._dyn_quant_matmul_4bit import _dyn_quant_matmul_4bit
 from ._native_batch_norm_legit_functional import _native_batch_norm_legit_functional
 from .acos_ import acos_
 from .adaptive_avg_pool2d_backward import _adaptive_avg_pool2d_backward
@@ -44,6 +45,7 @@ from .hadamard_transform import hadamard_transform
 from .histc import histc
 from .igamma_ import igamma_
 from .index_copy_ import index_copy_
+from .index_reduce import index_reduce, index_reduce_, index_reduce_out
 from .index_select_backward import index_select_backward
 from .kthvalue import kthvalue
 from .lift_out import lift_out
@@ -91,10 +93,7 @@ from .special_chebyshev_polynomial_w import (
     special_chebyshev_polynomial_w_out,
 )
 from .special_gammainc import special_gammainc
-from .special_hermite_polynomial_h import (
-    special_hermite_polynomial_h,
-    special_hermite_polynomial_h_tensor_tensor,
-)
+from .special_hermite_polynomial_h import special_hermite_polynomial_h
 from .special_legendre_polynomial_p import special_legendre_polynomial_p
 from .special_modified_bessel_k0 import special_modified_bessel_k0
 from .special_modified_bessel_k0_out import special_modified_bessel_k0_out
@@ -121,6 +120,7 @@ __all__ = [
     "_batch_norm_no_update",
     "_cholesky_solve_helper",
     "_conv_depthwise2d",
+    "_dyn_quant_matmul_4bit",
     "_native_batch_norm_legit_functional",
     "_thnn_fused_lstm_cell_backward_impl",
     "_unsafe_masked_index_put_accumulate",
@@ -151,6 +151,9 @@ __all__ = [
     "histc",
     "igamma_",
     "index_copy_",
+    "index_reduce",
+    "index_reduce_",
+    "index_reduce_out",
     "index_select_backward",
     "kthvalue",
     "ldl_factor_ex",
@@ -205,7 +208,6 @@ __all__ = [
     "special_chebyshev_polynomial_w_out",
     "special_gammainc",
     "special_hermite_polynomial_h",
-    "special_hermite_polynomial_h_tensor_tensor",
     "special_legendre_polynomial_p",
     "special_modified_bessel_k0",
     "special_modified_bessel_k0_out",

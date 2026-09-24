@@ -25,6 +25,7 @@ from ._embedding_bag_per_sample_weights_backward import (  # noqa: F401
     _embedding_bag_per_sample_weights_backward,
 )
 from ._euclidean_dist import _euclidean_dist
+from ._flash_attention_forward import _flash_attention_forward  # noqa: F401
 from ._functional_sym_constrain_range import _functional_sym_constrain_range
 from ._functional_sym_constrain_range_for_size import (
     _functional_sym_constrain_range_for_size,
@@ -46,6 +47,7 @@ from ._prelu_kernel_backward import _prelu_kernel_backward  # noqa: F401
 from ._scaled_dot_product_fused_attention_overrideable import (
     _scaled_dot_product_fused_attention_overrideable,
 )
+from ._thnn_fused_lstm_cell import _thnn_fused_lstm_cell
 from ._thnn_fused_lstm_cell_backward_impl import _thnn_fused_lstm_cell_backward_impl
 from ._unsafe_masked_index_put_accumulate import _unsafe_masked_index_put_accumulate
 from ._upsample_bilinear2d_aa import _upsample_bilinear2d_aa  # noqa: F401
@@ -75,6 +77,8 @@ from .all import all, all_dim, all_dims
 from .amax import amax
 from .amin import amin, amin_
 from .aminmax import aminmax
+from .and_scalar import and_scalar
+from .and_tensor import and_tensor
 from .angle import angle
 from .any import any, any_dim, any_dims
 from .apply_repetition_penalties import apply_repetition_penalties
@@ -98,11 +102,13 @@ from .atan2 import atan2, atan2_, atan2_out
 from .atanh import atanh, atanh_  # noqa: F401
 from .attention import (  # noqa: F401
     ScaleDotProductAttention,
+    efficient_attention_backward,
     flash_attention_forward,
     flash_attn_varlen_func,
     scaled_dot_product_attention,
     scaled_dot_product_attention_backward,
     scaled_dot_product_attention_forward,
+    scaled_dot_product_efficient_attention_backward,
 )
 from .avg_pool2d import avg_pool2d, avg_pool2d_backward
 from .avg_pool3d import avg_pool3d
@@ -171,6 +177,7 @@ from .clamp import (
 from .clip import clip, clip_
 from .col2im import col2im
 from .concatenate import concatenate
+from .conj_physical import conj_physical
 from .conj_physical_ import conj_physical_  # noqa: F401
 from .contiguous import contiguous
 from .conv1d import conv1d
@@ -198,6 +205,7 @@ from .diag import diag
 from .diag_embed import diag_embed
 from .diagonal import diagonal_backward
 from .diagonal_copy import diagonal_copy
+from .diagonal_scatter import diagonal_scatter
 from .diff import diff
 from .digamma import digamma
 from .digamma_ import digamma_
@@ -291,7 +299,7 @@ from .hardtanh_backward import hardtanh_backward  # noqa: F401
 from .heaviside_ import heaviside_  # noqa: F401
 from .histc import histc
 from .hstack import hstack
-from .hypot import hypot, hypot_
+from .hypot import hypot, hypot_, hypot_out
 from .igamma_ import igamma_  # noqa: F401
 from .igammac import igammac, igammac_out
 from .igammac_ import igammac_
@@ -324,7 +332,8 @@ from .lcm import lcm, lcm_
 from .le import le, le_, le_scalar
 from .leaky_relu import leaky_relu, leaky_relu_, leaky_relu_backward, leaky_relu_out
 from .lerp import lerp_scalar, lerp_scalar_, lerp_tensor, lerp_tensor_
-from .less_equal import less_equal, less_equal_, less_equal_scalar, less_equal_scalar_
+from .less_equal import less_equal, less_equal_scalar
+from .less_equal_ import less_equal_, less_equal_scalar_
 from .lgamma import lgamma, lgamma_
 from .lift_fresh import lift_fresh  # noqa: F401
 from .lift_fresh_copy import lift_fresh_copy
@@ -340,7 +349,7 @@ from .linalg_lstsq import linalg_lstsq
 from .linalg_lu import linalg_lu, linalg_lu_out  # noqa: F401
 from .linalg_lu_factor import linalg_lu_factor, linalg_lu_factor_out
 from .linalg_lu_factor_ex import linalg_lu_factor_ex, linalg_lu_factor_ex_out
-from .linalg_matrix_norm import linalg_matrix_norm
+from .linalg_matrix_norm import linalg_matrix_norm, linalg_matrix_norm_out
 from .linalg_slogdet import linalg_slogdet
 from .linalg_solve_triangular import (
     linalg_solve_triangular,
@@ -385,6 +394,7 @@ from .masked_scatter_backward import masked_scatter_backward
 from .masked_select import masked_select
 from .matmul_bf16 import matmul_bf16
 from .matmul_int8 import matmul_int8
+from .matmuladd import matmuladd
 from .max import max, max_dim
 from .max_pool2d_with_indices import (
     max_pool2d_backward,
@@ -577,6 +587,7 @@ from .special_erfc import special_erfc
 from .special_erfcx import special_erfcx
 from .special_erfinv import special_erfinv, special_erfinv_, special_erfinv_out
 from .special_exp2 import special_exp2
+from .special_expit import special_expit
 from .special_gammainc import special_gammainc
 from .special_gammaincc import special_gammaincc
 from .special_gammaln import special_gammaln
@@ -651,6 +662,10 @@ from .upsample_nearest1d import upsample_nearest1d
 from .upsample_nearest2d import upsample_nearest2d
 from .upsample_nearest3d import upsample_nearest3d
 from .upsample_nearest_exact1d import upsample_nearest_exact1d
+from .upsample_nearest_exact2d import (
+    _upsample_nearest_exact2d,
+    _upsample_nearest_exact2d_out,
+)
 from .upsample_nearest_exact2d_backward import upsample_nearest_exact2d_backward
 from .upsample_trilinear3d import upsample_trilinear3d
 from .var import var, var_correction, var_dim
@@ -689,6 +704,7 @@ __all__ = [
     "_dyn_quant_pack_4bit_weight",
     "_embedding_bag_dense_backward",
     "_euclidean_dist",
+    "_flash_attention_forward",
     "_functional_assert_async",
     "_functional_sym_constrain_range",
     "_functional_sym_constrain_range_for_size",
@@ -707,12 +723,15 @@ __all__ = [
     "_scaled_dot_product_fused_attention_overrideable",
     "_segment_reduce_backward",
     "_segment_reduce_backward_out",
+    "_thnn_fused_lstm_cell",
     "_thnn_fused_lstm_cell_backward_impl",
     "_unique2",
     "_unsafe_masked_index_put_accumulate",
     "_upsample_bicubic2d_aa",
     "_upsample_bicubic2d_aa_backward",
+    "_upsample_nearest_exact2d",
     "_upsample_nearest_exact2d_backward",
+    "_upsample_nearest_exact2d_out",
     "_upsample_nearest_exact3d",
     "_weight_norm",
     "abs",
@@ -753,6 +772,8 @@ __all__ = [
     "amin",
     "amin_",
     "aminmax",
+    "and_scalar",
+    "and_tensor",
     "angle",
     "any",
     "any_dim",
@@ -847,6 +868,7 @@ __all__ = [
     "clip_",
     "col2im",
     "concatenate",
+    "conj_physical",
     "constant_pad_nd",
     "contiguous",
     "conv1d",
@@ -876,6 +898,7 @@ __all__ = [
     "diag_embed",
     "diagonal_backward",
     "diagonal_copy",
+    "diagonal_scatter",
     "diff",
     "digamma",
     "digamma_",
@@ -886,6 +909,7 @@ __all__ = [
     "dot",
     "dropout",
     "dropout_backward",
+    "efficient_attention_backward",
     "elu",
     "elu_",
     "elu_backward",
@@ -982,6 +1006,7 @@ __all__ = [
     "hstack",
     "hypot",
     "hypot_",
+    "hypot_out",
     "igammac",
     "igammac_",
     "igammac_out",
@@ -1049,6 +1074,7 @@ __all__ = [
     "linalg_lu_factor_out",
     "linalg_lu_out",
     "linalg_matrix_norm",
+    "linalg_matrix_norm_out",
     "linalg_slogdet",
     "linalg_solve_triangular",
     "linalg_solve_triangular_out",
@@ -1101,6 +1127,7 @@ __all__ = [
     "masked_select",
     "matmul_bf16",
     "matmul_int8",
+    "matmuladd",
     "max",
     "max_dim",
     "max_pool2d_backward",
@@ -1267,6 +1294,7 @@ __all__ = [
     "scaled_dot_product_attention",
     "scaled_dot_product_attention_backward",
     "scaled_dot_product_attention_forward",
+    "scaled_dot_product_efficient_attention_backward",
     "scaled_mm",
     "scaled_mm_out",
     "scaled_softmax_backward",
