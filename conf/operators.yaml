@@ -146,6 +146,18 @@ ops:
   - NeuralNetwork
   stages:
   - alpha: '5.4'
+- id: _linalg_eigh
+  description: Computes the eigenvalues and eigenvectors of a symmetric or Hermitian
+    matrix.
+  for:
+  - _linalg_eigh
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - alpha: '5.4'
 - id: _linalg_slogdet
   description: 'Computes the sign and natural logarithm of the absolute value of the
 
@@ -4615,28 +4627,6 @@ ops:
   stages:
   - alpha: '5.0'
   - beta: '5.3'
-- id: dunder_or_scalar
-  description: The scalar version of `dunder_or_tensor`.
-  for:
-  - __or__.Scalar
-  labels:
-  - aten
-  - KernelGen
-  kind:
-  - Math
-  stages:
-  - beta: '5.3'
-- id: dunder_or_tensor
-  description: The in-place version of bitwise or operation for tensor and scalar.
-  for:
-  - __or__.Tensor
-  labels:
-  - aten
-  - KernelGen
-  kind:
-  - Math
-  stages:
-  - beta: '5.3'
 - id: dyn_quant_matmul_4bit
   description: Dynamic per-row INT8 activation and signed INT4 weight matrix multiplication.
   for:
@@ -8921,6 +8911,20 @@ ops:
   - Math
   stages:
   - alpha: '5.4'
+- id: linalg_eigh
+  description: 'Computes the eigenvalue decomposition of a symmetric (or Hermitian)
+    matrix or a batch of matrices.
+
+    '
+  for:
+  - linalg_eigh
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - LinearAlg
+  stages:
+  - alpha: '5.4'
 - id: linalg_eigvals
   description: Computes the eigenvalues of a square matrix.
   for:
@@ -11807,10 +11811,10 @@ ops:
   for:
     - _nested_tensor_from_mask
   labels:
-    - aten
-    - KernelGen
+  - aten
+  - KernelGen
   kind:
-    - Tensor
+  - Tensor
   stages:
     - alpha: '5.5.0'
 - id: nested_tensor_from_mask_left_aligned
@@ -12409,6 +12413,29 @@ ops:
   - Tensor
   stages:
   - stable: '2.1'
+- id: or_scalar
+  description: The scalar version of `or_tensor`.
+  for:
+  - __or__.Scalar
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - beta: '5.3'
+- id: or_tensor
+  description: Computes the bitwise OR operation through the tensor dunder method
+    with tensor operands.
+  for:
+  - __or__.Tensor
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Math
+  stages:
+  - beta: '5.3'
 - id: orgqr
   description: 'Computes the first n columns of a product of Householder matrices.
 
