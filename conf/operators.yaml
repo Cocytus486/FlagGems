@@ -4362,6 +4362,20 @@ ops:
   stages:
   - beta: '5.0'
   - stable: '5.3'
+- id: dim
+  description: 'Returns the number of dimensions (rank) of a tensor: a pure metadata
+    query independent of layout, dtype and stored data.
+
+    '
+  for:
+  - dim
+  labels:
+  - aten
+  - KernelGen
+  kind:
+  - Tensor
+  stages:
+  - alpha: '5.5'
 - id: dirichlet_grad
   description: 'Computes the reparameterized-gradient of the Dirichlet distribution
     with respect
@@ -4377,7 +4391,7 @@ ops:
   kind:
   - Math
   stages:
-  - alpha: '5.4'
+  - alpha: '5.5'
 - id: dispatch_fused_moe_kernel
   description: 'Accelerates neural network training by combining token routing (dispatch/all-to-all
     communication),
